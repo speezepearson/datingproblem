@@ -8,9 +8,24 @@ def secure_randrange(limit):
   random.seed(os.urandom(256))
   return random.randrange(limit)
 
+def bytes_to_int(bs):
+  result = 0
+  while bs:
+    result, bs = 256*result + bs[0], bs[1:]
+  return result
+def int_to_bytes(n):
+  result = bytes()
+  while n:
+    n, low_order_byte = divmod(n, 256)
+    result = bytes([low_order_byte]) + result
+  return result
+
+assert 12345 == bytes_to_int(int_to_bytes(12345))
+assert b'12345' == int_to_bytes(bytes_to_int(b'12345'))
+
 def do_initiator_handshake(matchmaker, interested, p, q, e, d):
-  msg_no_plaintext = 2*secure_randrange(2**510)
-  msg_true_plaintext = 2*secure_randrange(2**510) + (1 if interested else 0)
+  msg_no_plaintext = bytes_to_int(b'no ' + os.urandom(10))
+  msg_true_plaintext = bytes_to_int((b'yes ' if interested else b'no ') + os.urandom(10))
   msg_no = rsa.core.encrypt_int(message=msg_no_plaintext, ekey=e, n=p*q)
   msg_true = rsa.core.encrypt_int(message=msg_true_plaintext, ekey=e, n=p*q)
   matchmaker.set_p_q_msg_no_msg_true(p, q, msg_no, msg_true)
@@ -39,5 +54,10 @@ def do_responder_handshake(matchmaker, interested):
   msg_result = rsa.core.decrypt_int(cyphertext=msg_unlocked, dkey=d, n=p*q)
   matchmaker.set_msg_result(msg_result)
 
-  match = (msg_result%2 == 1)
-  return match
+  msg_result_bytes = int_to_bytes(msg_result)
+  if msg_result_bytes.startswith(b'no '):
+    return False
+  elif msg_result_bytes.startswith(b'yes '):
+    return True
+  else:
+    raise RuntimeError('funny thing: decrypted message {} does not start with yes or no'.format(msg_result_bytes))
